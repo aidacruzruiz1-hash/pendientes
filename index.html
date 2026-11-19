@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111114" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Pendientes">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <title>Pendientes</title>
+</head>
+<body>
+  <header class="top">
+    <div>
+      <p class="date" id="todayLabel"></p>
+      <h1 id="viewTitle">Hoy</h1>
+    </div>
+    <button class="icon-btn" id="settingsBtn" type="button" aria-label="Ajustes">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Zm7.43-2.53c.04-.32.07-.64.07-.97s-.03-.66-.07-1l2.11-1.63a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64L4.57 11c-.04.34-.07.67-.07 1s.03.65.07.97l-2.11 1.66a.49.49 0 0 0-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1.01c.22.08.49 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.66Z"/></svg>
+    </button>
+  </header>
+
+  <div id="installHint" class="hint" hidden>
+    <p><strong>Instálala en tu iPhone:</strong> toca <span class="kbd">Compartir</span> abajo en Safari y luego <span class="kbd">Agregar a inicio</span>.</p>
+    <button type="button" class="link" id="dismissHint">Entendido</button>
+  </div>
+
+  <nav class="chips" id="categoryChips" aria-label="Filtrar por categoría"></nav>
+
+  <main id="list" aria-live="polite"></main>
+
+  <button class="fab" id="addBtn" type="button" aria-label="Nuevo pendiente">
+    <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+  </button>
+
+  <nav class="tabs" aria-label="Vistas">
+    <button type="button" data-view="today" class="active">Hoy</button>
+    <button type="button" data-view="upcoming">Próximos</button>
+    <button type="button" data-view="all">Todos</button>
+    <button type="button" data-view="done">Hechos</button>
+  </nav>
+
+  <!-- Nuevo / editar pendiente -->
+  <dialog id="taskDialog">
+    <form id="taskForm" novalidate>
+      <div class="sheet-head">
+        <button type="button" class="link" data-close>Cancelar</button>
+        <h2 id="taskDialogTitle">Nuevo pendiente</h2>
+        <button type="submit" class="link strong">Guardar</button>
+      </div>
+
+      <label class="field">
+        <span>¿Qué tienes que hacer?</span>
+        <input name="taskTitle" required maxlength="140" autocomplete="off" enterkeyhint="done">
+      </label>
+
+      <div class="field">
+        <span>Categoría</span>
+        <div class="cat-picker" id="catPicker" role="radiogroup"></div>
+      </div>
+
+      <div class="row">
+        <label class="field">
+          <span>Fecha</span>
+          <input type="date" name="date">
+        </label>
+        <label class="field">
+          <span>Hora</span>
+          <input type="time" name="time">
+        </label>
+      </div>
+
+      <div class="quick-dates">
+        <button type="button" data-quick="0">Hoy</button>
+        <button type="button" data-quick="1">Mañana</button>
+        <button type="button" data-quick="7">En una semana</button>
+        <button type="button" data-quick="">Sin fecha</button>
+      </div>
+
+      <label class="field">
+        <span>Recordatorio</span>
+        <select name="reminder">
+          <option value="">Sin recordatorio</option>
+          <option value="0">A la hora</option>
+          <option value="10">10 minutos antes</option>
+          <option value="30">30 minutos antes</option>
+          <option value="60">1 hora antes</option>
+          <option value="1440">1 día antes</option>
+        </select>
+      </label>
+      <p class="help" id="reminderHelp" hidden>Si no pones hora, te aviso a las 9:00 a. m.</p>
+
+      <label class="field">
+        <span>Notas</span>
+        <textarea name="notes" rows="3"></textarea>
+      </label>
+
+      <button type="button" class="wide-btn" id="calendarBtn" hidden>📅 Enviar al Calendario del iPhone</button>
+      <button type="button" class="wide-btn danger" id="deleteTaskBtn" hidden>Eliminar pendiente</button>
+    </form>
+  </dialog>
+
+  <!-- Ajustes -->
+  <dialog id="settingsDialog">
+    <div class="sheet-head">
+      <span></span>
+      <h2>Ajustes</h2>
+      <button type="button" class="link strong" data-close>Listo</button>
+    </div>
+
+    <section class="settings-section">
+      <h3>Categorías</h3>
+      <ul class="cat-list" id="catList"></ul>
+      <form class="add-cat" id="addCatForm">
+        <input name="catName" placeholder="Nueva categoría (ej. Gym)" maxlength="30" autocomplete="off">
+        <button type="submit">Agregar</button>
+      </form>
+    </section>
+
+    <section class="settings-section">
+      <h3>Avisos y número en el ícono</h3>
+      <p class="help" id="notifStatus"></p>
+      <button type="button" class="wide-btn" id="enableNotifBtn">Activar avisos</button>
+    </section>
+
+    <section class="settings-section">
+      <h3>Recordatorios con la app cerrada</h3>
+      <p class="help">Envía tus pendientes con recordatorio al Calendario del iPhone. El Calendario te avisa aunque esta app esté cerrada, y su widget muestra los pendientes del día en tu pantalla de inicio.</p>
+      <button type="button" class="wide-btn" id="exportCalBtn">📅 Enviar recordatorios al Calendario</button>
+    </section>
+
+    <section class="settings-section">
+      <h3>Respaldo</h3>
+      <p class="help">Tus pendientes se guardan solo en este teléfono. Descarga un respaldo de vez en cuando.</p>
+      <div class="row">
+        <button type="button" class="wide-btn" id="backupBtn">Descargar respaldo</button>
+        <label class="wide-btn file-btn">Restaurar<input type="file" id="restoreInput" accept="application/json,.json" hidden></label>
+      </div>
+    </section>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
