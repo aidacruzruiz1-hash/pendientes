@@ -296,6 +296,12 @@ dialog[open] { animation: up 0.22s ease-out; }
 }
 .wide-btn.danger { color: var(--danger); }
 .row .wide-btn { flex: 1; }
+a.wide-btn { text-decoration: none; }
+.wide-btn.primary { background: var(--accent); color: var(--accent-text); }
+.sync-status { margin: 0 4px 4px; font-size: 14px; }
+.sync-status.ok { color: var(--text); }
+.sync-status.err { color: var(--danger); }
+.add-cat input[name="server"] { font-size: 15px; }
 .file-btn { cursor: pointer; }
 
 /* Ajustes */

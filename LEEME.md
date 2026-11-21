@@ -47,9 +47,13 @@ En el iPhone, una app web **no puede programar avisos que lleguen con la app tot
 |---|---|
 | App abierta o recién usada (en segundo plano) | Te llega el aviso a la hora del recordatorio. |
 | App cerrada cuando llega la hora | Al abrirla, ves el recordatorio que se te pasó. |
-| **Quieres avisos seguros siempre** | Usa **📅 Enviar al Calendario** (dentro de un pendiente, o en Ajustes para enviar todos). El Calendario del iPhone te avisa a la hora exacta aunque la app esté cerrada. |
+| **Quieres avisos seguros siempre** | Activa el **Calendario automático** (⚙︎ › Calendario automático). Tus pendientes con fecha aparecen solos en el Calendario del iPhone, que te avisa aunque la app esté cerrada. Las instrucciones están en `servidor-calendario/COMO-CONFIGURAR.md`. |
 
-Cuando tocas *Enviar al Calendario* se abre el menú Compartir del iPhone. Elige **Calendario** si aparece. Si no aparece, elige **Guardar en Archivos**, abre el archivo desde la app Archivos y toca **Agregar todo**.
+Si no quieres configurar el servidor, puedes usar **📅 Enviar al Calendario** en cada pendiente para importarlo a mano.
+
+Cuando tocas *Enviar al Calendario*, el iPhone muestra directamente su pantalla de **Agregar al Calendario** con el evento y su alarma. Toca **Agregar todo** (o **Agregar al calendario**) y listo.
+
+Si en lugar de eso aparece el menú Compartir, la app todavía no termina de actualizarse: ciérrala por completo (desliza hacia arriba desde la parte de abajo y quítala) y vuelve a abrirla. Mientras tanto, en ese menú puedes elegir **Guardar en Archivos**, abrir el archivo desde la app Archivos y tocar **Agregar todo**.
 
 ### Bonus: ver los pendientes del día en la pantalla de inicio
 

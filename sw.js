@@ -1,5 +1,6 @@
 // Service worker: permite abrir la app sin internet y mostrar avisos.
-const CACHE = 'pendientes-v1';
+const CACHE = 'pendientes-v2';
+const ICS_CACHE = 'pendientes-ics'; // evento listo para abrir en el Calendario
 const ASSETS = [
   './',
   './index.html',
@@ -19,7 +20,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== ICS_CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -27,7 +28,21 @@ self.addEventListener('activate', (event) => {
 // Primero la red (para recibir actualizaciones); si no hay internet, la copia guardada.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  // calendario.ics lo arma la app en el teléfono; nunca se pide a internet.
+  if (url.pathname.endsWith('/calendario.ics')) {
+    event.respondWith(
+      caches.open(ICS_CACHE)
+        .then((c) => c.match('./calendario.ics', { ignoreSearch: true }))
+        .then((res) => res || new Response('<script>history.back()</script>', {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }))
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(req)
       .then((res) => {
@@ -39,6 +54,11 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => caches.match(req).then((r) => r || caches.match('./index.html')))
   );
+});
+
+// La app pregunta si este service worker ya sabe entregar calendario.ics.
+self.addEventListener('message', (event) => {
+  if (event.data === 'puedes-calendario' && event.ports[0]) event.ports[0].postMessage(true);
 });
 
 // Al tocar un aviso, abre (o enfoca) la app.

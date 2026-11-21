@@ -7,6 +7,7 @@
 
 const STORE_KEY = 'pendientes.v1';
 const HINT_KEY = 'pendientes.hintDismissed';
+const SYNC_KEY = 'pendientes.sync';
 const PALETTE = ['#e8590c', '#1c7ed6', '#2f9e44', '#ae3ec9', '#e03131', '#f08c00', '#0c8599', '#5f3dc4', '#868e96'];
 const DEFAULT_CATEGORIES = [
   { id: 'personal', name: 'Personal', color: '#e8590c' },
@@ -85,6 +86,7 @@ function save() {
   } catch (e) {
     toast('No se pudo guardar en este dispositivo');
   }
+  scheduleSync();
 }
 
 function category(id) {
@@ -310,7 +312,7 @@ function openTask(id) {
 
   $('#taskDialogTitle').textContent = task ? 'Editar' : 'Nuevo pendiente';
   $('#deleteTaskBtn').hidden = !task;
-  $('#calendarBtn').hidden = !(task && task.date);
+  $('#calendarBtn').hidden = !!sync || !(task && task.date); // con suscripción ya llega solo
 
   $('#taskDialog').showModal();
   if (!task) setTimeout(() => F('taskTitle').focus(), 60);
@@ -529,8 +531,13 @@ function icsEvent(t) {
   return lines;
 }
 
-const buildIcs = (tasks) =>
-  ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pendientes//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...tasks.flatMap(icsEvent), 'END:VCALENDAR'].join('\r\n');
+const buildIcs = (tasks, feed = false) =>
+  [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pendientes//ES', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    ...(feed ? ['X-WR-CALNAME:Pendientes', 'REFRESH-INTERVAL;VALUE=DURATION:PT15M', 'X-PUBLISHED-TTL:PT15M'] : []),
+    ...tasks.flatMap(icsEvent),
+    'END:VCALENDAR',
+  ].join('\r\n');
 
 async function deliverFile(name, type, text) {
   const file = new File([text], name, { type });
@@ -551,10 +558,49 @@ async function deliverFile(name, type, text) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+// Abre el evento como si viniera de una página web: el iPhone muestra
+// directamente su pantalla de "Agregar al Calendario".
+// El service worker entrega el archivo; los datos no salen del teléfono.
+function swCanServeCalendar() {
+  return new Promise((resolve) => {
+    const ctrl = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!ctrl || !('caches' in window)) return resolve(false);
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(false), 800);
+    channel.port1.onmessage = (e) => { clearTimeout(timer); resolve(e.data === true); };
+    ctrl.postMessage('puedes-calendario', [channel.port2]);
+  });
+}
+
+async function openInCalendar(name, text) {
+  // Si la app todavía corre la versión anterior, usamos Compartir para no navegar a una página vacía.
+  if (!(await swCanServeCalendar())) return false;
+  try {
+    const cache = await caches.open('pendientes-ics');
+    await cache.put(new Request('./calendario.ics'), new Response(text, {
+      headers: {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${name}"`,
+      },
+    }));
+    location.href = './calendario.ics?v=' + Date.now();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function sendToCalendar(name, tasks) {
+  const ics = buildIcs(tasks);
+  if (!(await openInCalendar(name, ics))) {
+    await deliverFile(name, 'text/calendar', ics);
+  }
+}
+
 function exportTaskToCalendar() {
   const task = state.tasks.find((x) => x.id === editingId);
   if (!task || !task.date) return;
-  deliverFile('pendiente.ics', 'text/calendar', buildIcs([task]));
+  sendToCalendar('pendiente.ics', [task]);
 }
 
 function exportAllToCalendar() {
@@ -564,7 +610,157 @@ function exportAllToCalendar() {
     toast('No hay recordatorios futuros para enviar');
     return;
   }
-  deliverFile('pendientes.ics', 'text/calendar', buildIcs(tasks));
+  sendToCalendar('pendientes.ics', tasks);
+}
+
+/* ---------- Calendario automático (suscripción) ----------
+   La app sube tus pendientes con fecha a tu servidor de Cloudflare,
+   y el Calendario del iPhone se suscribe a esa dirección. */
+
+let sync = loadSync();
+let syncTimer;
+
+function loadSync() {
+  try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || null; } catch (e) { return null; }
+}
+function saveSync() {
+  try {
+    if (sync) localStorage.setItem(SYNC_KEY, JSON.stringify(sync));
+    else localStorage.removeItem(SYNC_KEY);
+  } catch (e) { /* ignorado */ }
+}
+
+const randomToken = (bytes) =>
+  Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(36).padStart(2, '0')).join('');
+const feedUrl = () => `${sync.server}/calendario/${sync.id}.ics`;
+const webcalUrl = () => feedUrl().replace(/^https?:/, 'webcal:');
+
+function buildFeed() {
+  const from = addDays(todayStr(), -30);
+  return buildIcs(state.tasks.filter((t) => !t.done && t.date && t.date >= from), true);
+}
+
+function scheduleSync() {
+  if (!sync) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushFeed, 1200);
+}
+
+async function serverRequest(method, body) {
+  const res = await fetch(feedUrl(), {
+    method,
+    headers: { Authorization: 'Bearer ' + sync.key, 'Content-Type': 'text/calendar; charset=utf-8' },
+    body,
+  });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `Error ${res.status}`);
+}
+
+async function pushFeed() {
+  if (!sync) return false;
+  clearTimeout(syncTimer);
+  try {
+    await serverRequest('PUT', buildFeed());
+    sync.lastSync = Date.now();
+    sync.error = '';
+    return true;
+  } catch (e) {
+    sync.error = e.message === 'Failed to fetch' || e.name === 'TypeError' ? 'Sin conexión con el servidor' : e.message;
+    return false;
+  } finally {
+    saveSync();
+    if ($('#settingsDialog').open) renderSyncSection();
+  }
+}
+
+function normalizeServer(raw) {
+  let s = raw.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  return /^https:\/\/[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(s) ? s.toLowerCase() : null;
+}
+
+async function connectSync(e) {
+  e.preventDefault();
+  const server = normalizeServer(e.target.elements.server.value);
+  if (!server) { toast('Revisa la dirección del servidor'); return; }
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = 'Conectando…';
+  sync = { server, id: randomToken(16), key: randomToken(24), lastSync: 0, error: '' };
+  const ok = await pushFeed();
+  if (!ok) {
+    const err = sync.error;
+    sync = null;
+    saveSync();
+    renderSyncSection();
+    toast('No se pudo conectar: ' + err);
+    return;
+  }
+  renderSyncSection();
+  render();
+  toast('¡Conectado! Ahora toca “Suscribir mi Calendario”');
+}
+
+async function disconnectSync() {
+  if (!confirm('¿Desconectar? Tus pendientes dejarán de actualizarse en el Calendario y se borrarán del servidor. Después quita la suscripción en Configuración › Calendario › Cuentas.')) return;
+  try { await serverRequest('DELETE'); } catch (e) { /* si falla, igual desconectamos aquí */ }
+  sync = null;
+  saveSync();
+  renderSyncSection();
+  render();
+  toast('Desconectado');
+}
+
+async function copyFeedUrl() {
+  try {
+    await navigator.clipboard.writeText(feedUrl());
+    toast('Dirección copiada');
+  } catch (e) {
+    prompt('Copia esta dirección:', feedUrl());
+  }
+}
+
+function renderSyncSection() {
+  const wrap = $('#syncSection');
+  wrap.replaceChildren();
+  $('#manualCalSection').hidden = !!sync;
+
+  if (!sync) {
+    const form = el('form', { className: 'add-cat' },
+      el('input', { name: 'server', type: 'url', placeholder: 'https://pendientes-calendario….workers.dev', autocomplete: 'off', inputMode: 'url' }),
+      el('button', { type: 'submit', textContent: 'Conectar' }));
+    form.noValidate = true; // aceptamos la dirección con o sin https://
+    form.elements.server.setAttribute('autocapitalize', 'off');
+    form.addEventListener('submit', connectSync);
+    wrap.append(
+      el('p', { className: 'help', textContent: 'Tus pendientes con fecha aparecen solos en el Calendario del iPhone, con sus alarmas, y se actualizan cada vez que cambias algo. Pega aquí la dirección de tu servidor (instrucciones en la guía LEEME).' }),
+      form);
+    return;
+  }
+
+  let status;
+  if (sync.error) {
+    status = el('p', { className: 'sync-status err', textContent: `⚠️ No se pudo actualizar: ${sync.error}. Lo intento de nuevo con tu próximo cambio.` });
+  } else {
+    const when = sync.lastSync
+      ? `${friendlyDate(ymd(new Date(sync.lastSync)))}, ${fmtHour.format(new Date(sync.lastSync))}`
+      : 'pendiente';
+    status = el('p', { className: 'sync-status ok', textContent: `✓ Conectado. Última actualización: ${when}.` });
+  }
+
+  const subscribe = el('a', { className: 'wide-btn primary', href: webcalUrl(), textContent: '📅 Suscribir mi Calendario' });
+  const copy = el('button', { type: 'button', className: 'wide-btn', textContent: 'Copiar dirección del calendario' });
+  copy.addEventListener('click', copyFeedUrl);
+  const now = el('button', { type: 'button', className: 'wide-btn', textContent: 'Actualizar ahora' });
+  now.addEventListener('click', async () => {
+    now.disabled = true;
+    if (await pushFeed()) toast('Calendario actualizado');
+  });
+  const off = el('button', { type: 'button', className: 'wide-btn danger', textContent: 'Desconectar' });
+  off.addEventListener('click', disconnectSync);
+
+  wrap.append(status,
+    el('p', { className: 'help', textContent: 'Solo necesitas suscribirte una vez. Al suscribirte, desactiva “Eliminar alertas” para que suenen los recordatorios.' }),
+    subscribe, copy, now, off);
 }
 
 /* ---------- Respaldo ---------- */
@@ -621,6 +817,7 @@ function wire() {
   $('#settingsBtn').addEventListener('click', () => {
     renderCatList();
     renderNotifStatus();
+    renderSyncSection();
     $('#settingsDialog').showModal();
   });
   $('#addCatForm').addEventListener('submit', addCategory);
@@ -645,7 +842,9 @@ function wire() {
   });
 
   // Al volver a la app: refresca "Hoy" (por si cambió el día) y los recordatorios.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { render(); scheduleSync(); }
+  });
 }
 
 if ('serviceWorker' in navigator) {
@@ -654,3 +853,4 @@ if ('serviceWorker' in navigator) {
 
 wire();
 render();
+scheduleSync(); // al abrir, pone al día el calendario (y reintenta si antes falló)
